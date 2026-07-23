@@ -23,6 +23,7 @@ class ScanRequest(BaseModel):
     timeout: int = Field(default=30, ge=5, le=60)
     test_all_headers: bool = Field(default=False)
     test_second_order: bool = Field(default=False)
+    boolean_threshold: float = Field(default=10.0, ge=0, le=100, description="Minimum percent change in response length to trigger boolean-based detection")
     auth_cookie: str = Field(default="")
     auth_creds: str = Field(default="")
 
@@ -89,6 +90,7 @@ async def run_scan_task(scan_id: str, request: ScanRequest):
                 "request_delay": request.request_delay,
                 "test_all_headers": request.test_all_headers,
                 "test_second_order": request.test_second_order,
+                "boolean_threshold": request.boolean_threshold,
             }, progress_callback=progress)
 
         duration = (datetime.utcnow() - start_time).total_seconds()

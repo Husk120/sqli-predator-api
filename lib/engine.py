@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import random
 import time
 import uuid
@@ -13,6 +14,7 @@ from lib.payloads import ALL_PAYLOADS
 from lib.crawler import Crawler
 
 log = logging.getLogger("sqli-predator")
+DEBUG = os.getenv('DEBUG_SQLI') == '1'
 
 SQL_ERROR_PATTERNS = {
     "MySQL": [
@@ -120,7 +122,7 @@ async def run_scan(client: httpx.AsyncClient, target_url: str, config: dict,
 
     if config.get("test_all_headers"):
         progress("Testing HTTP headers", 80)
-        header_findings = await test_headers(client, target_url)
+        header_findings = await test_headers(client, target_url, config)
         findings.extend(header_findings)
 
     seen = set()
@@ -153,7 +155,11 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
         if not resp:
             return []
         baseline_len = len(resp.text)
-    except:
+        if DEBUG:
+            print(f"[DEBUG] Form test - URL: {url}, Method: {method}, Baseline length: {baseline_len}")
+    except Exception as e:
+        if DEBUG:
+            print(f"[DEBUG] Error getting baseline for form {url}: {e}")
         return []
 
     for inp in inputs:
@@ -163,6 +169,10 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
         param = inp["name"]
         test_payloads = ALL_PAYLOADS[:25]
         random.shuffle(test_payloads)
+
+        if DEBUG:
+            print(f"[DEBUG] Testing parameter '{param}' with {len(test_payloads)} payloads")
+        threshold = float(config.get("boolean_threshold", 10.0))
 
         for payload in test_payloads:
             try:
@@ -187,7 +197,14 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
                 diff = abs(test_len - baseline_len) / max(baseline_len, 1) * 100
                 is_time = payload["category"] == "time_based" and duration > 3
 
-                if has_err or diff > 30 or is_time:
+                if DEBUG:
+                    print(f"[DEBUG] Param '{param}' | Payload: {payload['value'][:30]}... | Len: {test_len} | Diff: {diff:.2f}% | Err: {has_err} | Time: {is_time} ({duration:.2f}s) | Trigger: {has_err or diff > threshold or is_time}")
+
+                trigger = has_err or diff > threshold or is_time
+                if DEBUG:
+                    print(f"[DEBUG] Param '{param}' | Payload: {payload['value'][:30]}... | Len: {test_len} | Diff: {diff:.2f}% | Err: {has_err} | Time: {is_time} ({duration:.2f}s) | Trigger: {trigger}")
+
+                if trigger:
                     conf = calc_confidence(has_err, diff, is_time)
                     findings.append({
                         "id": uuid.uuid4().hex[:8],
@@ -207,9 +224,13 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
                         "description": f"SQLi via parameter '{param}' ({payload['category']})",
                         "remediation": remediation(),
                     })
+                    if DEBUG:
+                        print(f"[DETECTED] SQLi found for param '{param}' with payload '{payload['value'][:30]}...'")
 
                 await asyncio.sleep(config.get("request_delay", 0.3))
-            except:
+            except Exception as e:
+                if DEBUG:
+                    print(f"[DEBUG] Error testing payload {payload['value']}: {e}")
                 continue
 
     return findings
@@ -217,6 +238,7 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
 
 async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> list:
     findings = []
+    threshold = float(config.get("boolean_threshold", 10.0))
     for param in params:
         url = param["base_url"]
         name = param["name"]
@@ -224,15 +246,21 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
 
         try:
             resp = await client.get(url, params={name: value}, timeout=15)
-            if not resp: continue
+            if not resp:
+                continue
             bl = len(resp.text)
-        except:
+            if DEBUG:
+                print(f"[DEBUG] Param test - URL: {url}, Param: {name}, Baseline length: {bl}")
+        except Exception as e:
+            if DEBUG:
+                print(f"[DEBUG] Error getting baseline for param {name} at {url}: {e}")
             continue
 
         for payload in ALL_PAYLOADS[:15]:
             try:
                 resp = await client.get(url, params={name: payload["value"]}, timeout=15)
-                if not resp: continue
+                if not resp:
+                    continue
 
                 tl = len(resp.text)
                 dur = resp.elapsed.total_seconds() if hasattr(resp, 'elapsed') else 0
@@ -240,7 +268,14 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
                 diff = abs(tl - bl) / max(bl, 1) * 100
                 is_time = payload["category"] == "time_based" and dur > 3
 
-                if has_err or diff > 30 or is_time:
+                if DEBUG:
+                    print(f"[DEBUG] Param '{name}' | Payload: {payload['value'][:30]}... | Len: {tl} | Diff: {diff:.2f}% | Err: {has_err} | Time: {is_time} ({dur:.2f}s) | Trigger: {has_err or diff > threshold or is_time}")
+
+                trigger = has_err or diff > threshold or is_time
+                if DEBUG:
+                    print(f"[DEBUG] Param '{name}' | Payload: {payload['value'][:30]}... | Len: {tl} | Diff: {diff:.2f}% | Err: {has_err} | Time: {is_time} ({dur:.2f}s) | Trigger: {trigger}")
+
+                if trigger:
                     conf = calc_confidence(has_err, diff, is_time)
                     findings.append({
                         "id": uuid.uuid4().hex[:8],
@@ -256,15 +291,19 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
                         "description": f"SQLi via URL parameter '{name}'",
                         "remediation": remediation(),
                     })
+                    if DEBUG:
+                        print(f"[DETECTED] SQLi found for param '{name}' with payload '{payload['value'][:30]}...'")
 
                 await asyncio.sleep(config.get("request_delay", 0.3))
-            except:
+            except Exception as e:
+                if DEBUG:
+                    print(f"[DEBUG] Error testing payload {payload['value']} for param {name}: {e}")
                 continue
 
     return findings
 
 
-async def test_headers(client: httpx.AsyncClient, target_url: str) -> list:
+async def test_headers(client: httpx.AsyncClient, target_url: str, config: dict) -> list:
     findings = []
     tests = {
         "User-Agent": ["' OR SLEEP(3) -- ", "' OR 1=1 -- "],
@@ -278,6 +317,8 @@ async def test_headers(client: httpx.AsyncClient, target_url: str) -> list:
     except:
         bl = 0
 
+    threshold = float(config.get("boolean_threshold", 10.0))
+
     for header, payloads in tests.items():
         for payload in payloads:
             try:
@@ -286,7 +327,7 @@ async def test_headers(client: httpx.AsyncClient, target_url: str) -> list:
                 tl = len(resp.text)
                 diff = abs(tl - bl) / max(bl, 1) * 100
                 has_err, sigs, db = check_errors(resp.text)
-                if has_err or diff > 30:
+                if has_err or diff > threshold:
                     findings.append({
                         "id": uuid.uuid4().hex[:8],
                         "timestamp": datetime.utcnow().isoformat() + "Z",
