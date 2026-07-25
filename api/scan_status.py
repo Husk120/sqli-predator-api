@@ -15,6 +15,7 @@ async def get_status(scan_id: str):
     return {
         "id": scan["id"],
         "target": scan["target"],
+        "timestamp": scan.get("timestamp"),
         "status": scan["status"],
         "progress": scan["progress"],
         "current_phase": scan["current_phase"],
