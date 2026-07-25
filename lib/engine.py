@@ -121,6 +121,7 @@ def remediation():
 async def run_scan(client: httpx.AsyncClient, target_url: str, config: dict,
                    progress_callback=None):
     """Run full scan pipeline. Returns list of findings dicts."""
+    print(f"[ENGINE] run_scan called with target={target_url}", flush=True)
     findings = []
 
     def progress(phase: str, pct: int):
@@ -128,8 +129,10 @@ async def run_scan(client: httpx.AsyncClient, target_url: str, config: dict,
             progress_callback(phase, pct)
 
     progress("Crawling target", 5)
+    print(f"[ENGINE] About to crawl {target_url}", flush=True)
     crawler = Crawler(client, max_depth=config.get("crawl_depth", 1))
     forms, params = await crawler.crawl(target_url)
+    print(f"[ENGINE] Crawl returned {len(forms)} forms, {len(params)} params", flush=True)
     progress(f"Found {len(forms)} forms, {len(params)} params", 15)
 
     if forms:

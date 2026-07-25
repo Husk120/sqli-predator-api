@@ -68,6 +68,7 @@ async def start_scan(request: ScanRequest, background_tasks: BackgroundTasks):
 
 
 async def run_scan_task(scan_id: str, request: ScanRequest):
+    print(f"[SCAN_TASK] Starting scan {scan_id} for {request.target_url}", flush=True)
     start_time = datetime.utcnow()
 
     def progress(phase: str, pct: int):
