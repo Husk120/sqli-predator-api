@@ -61,6 +61,32 @@ def check_errors(text: str):
     return len(found) > 0, found, db_hint
 
 
+def check_reflection(response_text: str, payload: str, matched_signatures: list) -> tuple:
+    """Check if matched error signatures appear inside reflected payload in response."""
+    if not response_text or not payload or not matched_signatures:
+        return False, ""
+
+    lower_response = response_text.lower()
+    lower_payload = payload.lower()
+
+    payload_sigs = [sig for sig in matched_signatures if sig.lower() in lower_payload]
+
+    if payload_sigs:
+        for sig in payload_sigs:
+            lower_sig = sig.lower()
+            sig_idx = lower_payload.find(lower_sig)
+            if sig_idx != -1:
+                start = max(0, sig_idx - 10)
+                end = min(len(lower_payload), sig_idx + len(lower_sig) + 10)
+                snippet = lower_payload[start:end]
+
+                if snippet in lower_response:
+                    reason = "Payload appears reflected in response near matched signature — may be echoed search input rather than a genuine database error"
+                    return True, reason
+
+    return False, ""
+
+
 def calc_confidence(has_err: bool, diff: float, is_time: bool):
     c = 0.0
     if has_err: c += 0.50
@@ -206,6 +232,15 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
 
                 if trigger:
                     conf = calc_confidence(has_err, diff, is_time)
+                    likely_fp, fp_reason = False, ""
+                    if has_err:
+                        likely_fp, fp_reason = check_reflection(text, payload["value"], sigs)
+                        if likely_fp:
+                            conf = min(conf * 0.3, 0.3)
+
+                    effective_has_err = has_err and not likely_fp
+                    sev = severity(conf, effective_has_err, is_time)
+
                     findings.append({
                         "id": uuid.uuid4().hex[:8],
                         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -216,16 +251,18 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
                         "payload_used": payload["value"],
                         "db_type_hint": db,
                         "confidence": round(conf, 4),
-                        "severity": severity(conf, has_err, is_time),
+                        "severity": sev,
                         "cvss_score": round(conf * 10, 2),
                         "has_sql_errors": has_err,
                         "error_signatures": sigs[:5],
                         "response_difference_pct": round(diff, 2),
                         "description": f"SQLi via parameter '{param}' ({payload['category']})",
                         "remediation": remediation(),
+                        "likely_false_positive": likely_fp,
+                        "false_positive_reason": fp_reason,
                     })
                     if DEBUG:
-                        print(f"[DETECTED] SQLi found for param '{param}' with payload '{payload['value'][:30]}...'")
+                        print(f"[DETECTED] SQLi found for param '{param}' with payload '{payload['value'][:30]}...' (Likely FP: {likely_fp})")
 
                 await asyncio.sleep(config.get("request_delay", 0.3))
             except Exception as e:
@@ -277,6 +314,15 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
 
                 if trigger:
                     conf = calc_confidence(has_err, diff, is_time)
+                    likely_fp, fp_reason = False, ""
+                    if has_err:
+                        likely_fp, fp_reason = check_reflection(resp.text, payload["value"], sigs)
+                        if likely_fp:
+                            conf = min(conf * 0.3, 0.3)
+
+                    effective_has_err = has_err and not likely_fp
+                    sev = severity(conf, effective_has_err, is_time)
+
                     findings.append({
                         "id": uuid.uuid4().hex[:8],
                         "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -284,15 +330,17 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
                         "detection_method": "ERROR_BASED" if has_err else ("TIME_BASED" if is_time else "BOOLEAN_BASED"),
                         "payload_used": payload["value"], "db_type_hint": db,
                         "confidence": round(conf, 4),
-                        "severity": severity(conf, has_err, is_time),
+                        "severity": sev,
                         "cvss_score": round(conf * 10, 2),
                         "has_sql_errors": has_err, "error_signatures": sigs[:5],
                         "response_difference_pct": round(diff, 2),
                         "description": f"SQLi via URL parameter '{name}'",
                         "remediation": remediation(),
+                        "likely_false_positive": likely_fp,
+                        "false_positive_reason": fp_reason,
                     })
                     if DEBUG:
-                        print(f"[DETECTED] SQLi found for param '{name}' with payload '{payload['value'][:30]}...'")
+                        print(f"[DETECTED] SQLi found for param '{name}' with payload '{payload['value'][:30]}...' (Likely FP: {likely_fp})")
 
                 await asyncio.sleep(config.get("request_delay", 0.3))
             except Exception as e:
@@ -328,17 +376,29 @@ async def test_headers(client: httpx.AsyncClient, target_url: str, config: dict)
                 diff = abs(tl - bl) / max(bl, 1) * 100
                 has_err, sigs, db = check_errors(resp.text)
                 if has_err or diff > threshold:
+                    conf = 0.5
+                    likely_fp, fp_reason = False, ""
+                    if has_err:
+                        likely_fp, fp_reason = check_reflection(resp.text, payload, sigs)
+                        if likely_fp:
+                            conf = 0.15
+
+                    effective_has_err = has_err and not likely_fp
+                    sev = severity(conf, effective_has_err, False)
+
                     findings.append({
                         "id": uuid.uuid4().hex[:8],
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                         "url": target_url, "parameter": header, "vector": "HEADER",
                         "detection_method": "HEADER_INJECTION",
                         "payload_used": payload, "db_type_hint": db,
-                        "confidence": 0.5, "severity": "Medium", "cvss_score": 5.0,
+                        "confidence": round(conf, 4), "severity": sev, "cvss_score": round(conf * 10, 2),
                         "has_sql_errors": has_err, "error_signatures": sigs[:5],
                         "response_difference_pct": round(diff, 2),
                         "description": f"SQLi via HTTP header '{header}'",
                         "remediation": remediation(),
+                        "likely_false_positive": likely_fp,
+                        "false_positive_reason": fp_reason,
                     })
                 await asyncio.sleep(0.2)
             except:
