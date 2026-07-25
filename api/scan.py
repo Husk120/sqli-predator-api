@@ -24,7 +24,7 @@ async def get_scans_list():
 
 class ScanRequest(BaseModel):
     target_url: str = Field(..., description="Target URL to scan")
-    crawl_depth: int = Field(default=1, ge=0, le=2)
+    crawl_depth: int = Field(default=1, ge=0, le=3)
     request_delay: float = Field(default=0.3, ge=0.1, le=5.0)
     timeout: int = Field(default=30, ge=5, le=60)
     test_all_headers: bool = Field(default=False)
