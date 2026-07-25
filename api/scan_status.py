@@ -20,5 +20,6 @@ async def get_status(scan_id: str):
         "progress": scan["progress"],
         "current_phase": scan["current_phase"],
         "findings_count": scan.get("findings_count", 0),
+        "scan_log": scan.get("scan_log", []),
         "error": scan.get("error"),
     }

@@ -58,6 +58,7 @@ async def start_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         "findings": [],
         "findings_count": 0,
         "duration_seconds": 0,
+        "scan_log": [f"[{datetime.utcnow().strftime('%H:%M:%S')}] Scan initialized for target {request.target_url}"],
         "error": None,
         "severity_summary": {},
     })
@@ -73,6 +74,13 @@ async def run_scan_task(scan_id: str, request: ScanRequest):
 
     def progress(phase: str, pct: int):
         update_scan(scan_id, {"current_phase": phase, "progress": pct})
+        log_event(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Phase: {phase} ({pct}%)")
+
+    def log_event(message: str):
+        scan = get_scan(scan_id)
+        current_log = scan.get("scan_log", []) if scan else []
+        current_log.append(message)
+        update_scan(scan_id, {"scan_log": current_log})
 
     headers = {"User-Agent": "SQLi-PREDATOR/5.0"}
     if request.auth_cookie:
@@ -98,7 +106,7 @@ async def run_scan_task(scan_id: str, request: ScanRequest):
                 "test_all_headers": request.test_all_headers,
                 "test_second_order": request.test_second_order,
                 "boolean_threshold": request.boolean_threshold,
-            }, progress_callback=progress)
+            }, progress_callback=progress, log_callback=log_event)
 
         duration = (datetime.utcnow() - start_time).total_seconds()
 
@@ -109,6 +117,8 @@ async def run_scan_task(scan_id: str, request: ScanRequest):
             "Low": sum(1 for f in findings if f["severity"] == "Low"),
             "Info": sum(1 for f in findings if f["severity"] == "Info"),
         }
+
+        log_event(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Scan completed in {duration:.1f}s with {len(findings)} findings.")
 
         update_scan(scan_id, {
             "status": "completed",

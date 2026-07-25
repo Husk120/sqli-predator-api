@@ -119,7 +119,7 @@ def remediation():
 
 
 async def run_scan(client: httpx.AsyncClient, target_url: str, config: dict,
-                   progress_callback=None):
+                   progress_callback=None, log_callback=None):
     """Run full scan pipeline. Returns list of findings dicts."""
     print(f"[ENGINE] run_scan called with target={target_url}", flush=True)
     findings = []
@@ -128,11 +128,16 @@ async def run_scan(client: httpx.AsyncClient, target_url: str, config: dict,
         if progress_callback:
             progress_callback(phase, pct)
 
+    def log(msg: str):
+        if log_callback:
+            log_callback(msg)
+
     progress("Crawling target", 5)
     print(f"[ENGINE] About to crawl {target_url}", flush=True)
     crawler = Crawler(client, max_depth=config.get("crawl_depth", 1))
     forms, params = await crawler.crawl(target_url)
     print(f"[ENGINE] Crawl returned {len(forms)} forms, {len(params)} params", flush=True)
+    log(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Crawl complete: {len(forms)} form(s), {len(params)} param(s) discovered.")
     progress(f"Found {len(forms)} forms, {len(params)} params", 15)
 
     if forms:
@@ -140,8 +145,9 @@ async def run_scan(client: httpx.AsyncClient, target_url: str, config: dict,
         for i, form in enumerate(forms):
             p = 20 + int((i / len(forms)) * 40)
             progress(f"Form {i+1}/{len(forms)}: {form['action'][:50]}", p)
+            log(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Testing form {i+1}/{len(forms)} ({form['method']} {form['action']})")
 
-            form_findings = await test_form(client, form, config)
+            form_findings = await test_form(client, form, config, log_callback=log_callback)
             findings.extend(form_findings)
 
     if params and len(findings) < 20:
@@ -166,7 +172,7 @@ async def run_scan(client: httpx.AsyncClient, target_url: str, config: dict,
     return unique
 
 
-async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list:
+async def test_form(client: httpx.AsyncClient, form: dict, config: dict, log_callback=None) -> list:
     findings = []
     url = form["action"]
     method = form["method"]
@@ -196,6 +202,9 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
             continue
 
         param = inp["name"]
+        if log_callback:
+            log_callback(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Probing parameter '{param}' on {url}")
+
         test_payloads = ALL_PAYLOADS[:25]
         random.shuffle(test_payloads)
 
@@ -243,6 +252,10 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict) -> list
 
                     effective_has_err = has_err and not likely_fp
                     sev = severity(conf, effective_has_err, is_time)
+                    det_method = "ERROR_BASED" if has_err else ("TIME_BASED" if is_time else "BOOLEAN_BASED")
+
+                    if log_callback:
+                        log_callback(f"[{datetime.utcnow().strftime('%H:%M:%S')}] FINDING: {sev} vulnerability ({det_method}) on parameter '{param}'")
 
                     findings.append({
                         "id": uuid.uuid4().hex[:8],
