@@ -1,8 +1,9 @@
-"""Async web crawler for form and parameter discovery."""
-
+import logging
 from urllib.parse import urljoin, urlparse, parse_qs
 import httpx
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger("sqli-predator")
 
 
 class Crawler:
@@ -24,14 +25,19 @@ class Crawler:
         
         try:
             resp = await self.client.get(url, timeout=15)
+            logger.info(f"[CRAWLER] GET {url} -> Status: {resp.status_code} | Final URL: {resp.url} | Content-Length: {len(resp.text)}")
             if resp.status_code >= 400:
+                logger.warning(f"[CRAWLER] Skipping {url} due to HTTP status {resp.status_code}")
                 return
-        except:
+        except Exception as e:
+            logger.error(f"[CRAWLER] Failed to fetch {url}: {e}")
             return
         
         soup = BeautifulSoup(resp.text, "lxml")
+        forms_found = soup.find_all("form")
+        logger.info(f"[CRAWLER] Parsed {len(forms_found)} <form> elements on {resp.url}")
         
-        for form_tag in soup.find_all("form"):
+        for form_tag in forms_found:
             action = form_tag.get("action", "")
             action = urljoin(url, action) if action and action != "#" else url
             method = form_tag.get("method", "GET").upper()
