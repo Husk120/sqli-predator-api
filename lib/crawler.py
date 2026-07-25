@@ -1,9 +1,6 @@
-import logging
 from urllib.parse import urljoin, urlparse, parse_qs
 import httpx
 from bs4 import BeautifulSoup
-
-logger = logging.getLogger("sqli-predator")
 
 
 class Crawler:
@@ -25,17 +22,17 @@ class Crawler:
         
         try:
             resp = await self.client.get(url, timeout=15)
-            logger.info(f"[CRAWLER] GET {url} -> Status: {resp.status_code} | Final URL: {resp.url} | Content-Length: {len(resp.text)}")
+            print(f"[CRAWLER] GET {url} -> Status: {resp.status_code} | Final URL: {resp.url} | Content-Length: {len(resp.text)}", flush=True)
             if resp.status_code >= 400:
-                logger.warning(f"[CRAWLER] Skipping {url} due to HTTP status {resp.status_code}")
+                print(f"[CRAWLER] Skipping {url} due to HTTP status {resp.status_code}", flush=True)
                 return
         except Exception as e:
-            logger.error(f"[CRAWLER] Failed to fetch {url}: {e}")
+            print(f"[CRAWLER] Failed to fetch {url}: {e}", flush=True)
             return
         
         soup = BeautifulSoup(resp.text, "lxml")
         forms_found = soup.find_all("form")
-        logger.info(f"[CRAWLER] Parsed {len(forms_found)} <form> elements on {resp.url}")
+        print(f"[CRAWLER] Parsed {len(forms_found)} <form> elements on {resp.url}", flush=True)
         
         for form_tag in forms_found:
             action = form_tag.get("action", "")
