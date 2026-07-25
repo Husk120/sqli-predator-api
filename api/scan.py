@@ -9,7 +9,7 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from lib.store import create_scan, update_scan, list_scans
+from lib.store import create_scan, update_scan, list_scans, get_scan
 from lib.engine import run_scan
 
 router = APIRouter()
