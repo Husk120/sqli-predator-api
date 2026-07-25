@@ -9,11 +9,17 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel, Field
 
-from lib.store import create_scan, update_scan
+from lib.store import create_scan, update_scan, list_scans
 from lib.engine import run_scan
 
 router = APIRouter()
 log = logging.getLogger("sqli-predator")
+
+
+@router.get("/api/scans")
+async def get_scans_list():
+    return list_scans()
+
 
 
 class ScanRequest(BaseModel):
