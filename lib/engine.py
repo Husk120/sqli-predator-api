@@ -222,10 +222,15 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict, log_cal
         if log_callback:
             log_callback(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Probing parameter '{param}' on {url}")
 
-        test_payloads = random.sample(ALL_PAYLOADS, min(25, len(ALL_PAYLOADS)))
+        # Stratified sampling: guarantee all error_based payloads, plus 20 sampled from other categories (~44 total)
+        error_payloads = [p for p in ALL_PAYLOADS if p.get("category") == "error_based"]
+        other_payloads = [p for p in ALL_PAYLOADS if p.get("category") != "error_based"]
+        sampled_others = random.sample(other_payloads, min(20, len(other_payloads)))
+        test_payloads = error_payloads + sampled_others
+        random.shuffle(test_payloads)
 
         if DEBUG:
-            print(f"[DEBUG] Testing parameter '{param}' with {len(test_payloads)} payloads")
+            print(f"[DEBUG] Testing parameter '{param}' with {len(test_payloads)} payloads ({len(error_payloads)} error-based)")
         threshold = float(config.get("boolean_threshold", 10.0))
 
         for payload in test_payloads:
@@ -362,7 +367,13 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
                 print(f"[DEBUG] Error getting baseline for param {name} at {url}: {e}")
             continue
 
-        test_payloads = random.sample(ALL_PAYLOADS, min(15, len(ALL_PAYLOADS)))
+        # Stratified sampling: guarantee all error_based payloads, plus 12 sampled from other categories (~36 total)
+        error_payloads = [p for p in ALL_PAYLOADS if p.get("category") == "error_based"]
+        other_payloads = [p for p in ALL_PAYLOADS if p.get("category") != "error_based"]
+        sampled_others = random.sample(other_payloads, min(12, len(other_payloads)))
+        test_payloads = error_payloads + sampled_others
+        random.shuffle(test_payloads)
+
         for payload in test_payloads:
             start = time.time()
             try:
