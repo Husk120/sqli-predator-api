@@ -61,6 +61,15 @@ async def start_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         "scan_log": [f"[{datetime.utcnow().strftime('%H:%M:%S')}] Scan initialized for target {request.target_url}"],
         "error": None,
         "severity_summary": {},
+        "config": {
+            "crawl_depth": request.crawl_depth,
+            "request_delay": request.request_delay,
+            "timeout": request.timeout,
+            "test_all_headers": request.test_all_headers,
+            "test_second_order": request.test_second_order,
+            "boolean_threshold": request.boolean_threshold,
+            "auth_used": bool(request.auth_cookie or request.auth_creds),
+        },
     })
 
     background_tasks.add_task(run_scan_task, scan_id, request)
