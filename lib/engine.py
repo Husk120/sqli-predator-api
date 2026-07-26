@@ -47,6 +47,11 @@ SQL_ERROR_PATTERNS = {
         "syntax error", "query failed", "warning: mysql",
         "invalid query", "odbc_",
     ],
+    "NoSQL": [
+        "mongoerror", "mongoserver error", "bsonerror",
+        "cast to objectid failed", "e11000 duplicate key",
+        "unterminated string in json",
+    ],
 }
 
 
