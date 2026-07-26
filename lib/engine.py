@@ -1,6 +1,7 @@
 """Core SQL injection detection engine."""
 
 import asyncio
+from collections import defaultdict
 import logging
 import os
 import random
@@ -135,6 +136,52 @@ def remediation():
     ]
 
 
+FORM_CATEGORY_QUOTAS = {
+    "error_based": 24,       # ALL (24/24 - 100% guaranteed)
+    "boolean_false": 8,      # 8 of 18
+    "auth_bypass": 6,        # 6 of 15
+    "nosql_probe": 5,        # 5 of 11
+    "stacked_query": 5,      # 5 of 9
+    "header_injection": 5,   # 5 of 9
+    "syntax_probe": 4,       # 4 of 22
+    "boolean_true": 4,       # 4 of 50
+    "time_based": 3,         # 3 of 42
+    "union_probe": 3,        # 3 of 33
+}
+
+PARAM_CATEGORY_QUOTAS = {
+    "error_based": 24,       # ALL (24/24 - 100% guaranteed)
+    "boolean_false": 5,      # 5 of 18
+    "auth_bypass": 4,        # 4 of 15
+    "nosql_probe": 4,        # 4 of 11
+    "stacked_query": 3,      # 3 of 9
+    "header_injection": 3,   # 3 of 9
+    "syntax_probe": 3,       # 3 of 22
+    "boolean_true": 3,       # 3 of 50
+    "time_based": 2,         # 2 of 42
+    "union_probe": 2,        # 2 of 33
+}
+
+
+def _get_stratified_payloads(is_form: bool = True) -> list:
+    """Draw a stratified payload sample guaranteeing representation across all categories."""
+    quotas = FORM_CATEGORY_QUOTAS if is_form else PARAM_CATEGORY_QUOTAS
+    by_category = defaultdict(list)
+    for p in ALL_PAYLOADS:
+        by_category[p.get("category", "unknown")].append(p)
+
+    selected = []
+    for cat, items in by_category.items():
+        quota = quotas.get(cat, 10)
+        if quota >= len(items):
+            selected.extend(items)
+        else:
+            selected.extend(random.sample(items, quota))
+
+    random.shuffle(selected)
+    return selected
+
+
 async def run_scan(client: httpx.AsyncClient, target_url: str, config: dict,
                    progress_callback=None, log_callback=None):
     """Run full scan pipeline. Returns list of findings dicts."""
@@ -222,15 +269,11 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict, log_cal
         if log_callback:
             log_callback(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Probing parameter '{param}' on {url}")
 
-        # Stratified sampling: guarantee all error_based payloads, plus 20 sampled from other categories (~44 total)
-        error_payloads = [p for p in ALL_PAYLOADS if p.get("category") == "error_based"]
-        other_payloads = [p for p in ALL_PAYLOADS if p.get("category") != "error_based"]
-        sampled_others = random.sample(other_payloads, min(20, len(other_payloads)))
-        test_payloads = error_payloads + sampled_others
-        random.shuffle(test_payloads)
+        # Multi-category stratified sampling (~67 payloads per form parameter)
+        test_payloads = _get_stratified_payloads(is_form=True)
 
         if DEBUG:
-            print(f"[DEBUG] Testing parameter '{param}' with {len(test_payloads)} payloads ({len(error_payloads)} error-based)")
+            print(f"[DEBUG] Testing parameter '{param}' with {len(test_payloads)} stratified payloads")
         threshold = float(config.get("boolean_threshold", 10.0))
 
         for payload in test_payloads:
@@ -367,12 +410,8 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
                 print(f"[DEBUG] Error getting baseline for param {name} at {url}: {e}")
             continue
 
-        # Stratified sampling: guarantee all error_based payloads, plus 12 sampled from other categories (~36 total)
-        error_payloads = [p for p in ALL_PAYLOADS if p.get("category") == "error_based"]
-        other_payloads = [p for p in ALL_PAYLOADS if p.get("category") != "error_based"]
-        sampled_others = random.sample(other_payloads, min(12, len(other_payloads)))
-        test_payloads = error_payloads + sampled_others
-        random.shuffle(test_payloads)
+        # Multi-category stratified sampling (~53 payloads per URL parameter)
+        test_payloads = _get_stratified_payloads(is_form=False)
 
         for payload in test_payloads:
             start = time.time()
