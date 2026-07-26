@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 from datetime import datetime
+from urllib.parse import unquote
 
 import httpx
 
@@ -50,6 +51,10 @@ SQL_ERROR_PATTERNS = {
 
 
 def _normalize_for_comparison(s: str) -> str:
+    prev = None
+    while prev != s:
+        prev = s
+        s = unquote(s)
     s = re.sub(r'/\*.*?\*/', '', s)  # strip inline SQL comments
     s = re.sub(r'\s+', ' ', s)        # collapse whitespace
     return s.lower().strip()
