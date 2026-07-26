@@ -205,8 +205,7 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict, log_cal
         if log_callback:
             log_callback(f"[{datetime.utcnow().strftime('%H:%M:%S')}] Probing parameter '{param}' on {url}")
 
-        test_payloads = ALL_PAYLOADS[:25]
-        random.shuffle(test_payloads)
+        test_payloads = random.sample(ALL_PAYLOADS, min(25, len(ALL_PAYLOADS)))
 
         if DEBUG:
             print(f"[DEBUG] Testing parameter '{param}' with {len(test_payloads)} payloads")
@@ -346,7 +345,8 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
                 print(f"[DEBUG] Error getting baseline for param {name} at {url}: {e}")
             continue
 
-        for payload in ALL_PAYLOADS[:15]:
+        test_payloads = random.sample(ALL_PAYLOADS, min(15, len(ALL_PAYLOADS)))
+        for payload in test_payloads:
             start = time.time()
             try:
                 resp = await client.get(url, params={name: payload["value"]}, timeout=15)
