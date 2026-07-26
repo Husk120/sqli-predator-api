@@ -213,12 +213,12 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict, log_cal
         threshold = float(config.get("boolean_threshold", 10.0))
 
         for payload in test_payloads:
+            start = time.time()
             try:
                 req_data = {}
                 for i in inputs:
                     req_data[i["name"]] = payload["value"] if i["name"] == param else i.get("value", "test")
 
-                start = time.time()
                 if method == "POST":
                     resp = await client.post(url, data=req_data, timeout=15)
                 else:
@@ -233,10 +233,7 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict, log_cal
 
                 has_err, sigs, db = check_errors(text)
                 diff = abs(test_len - baseline_len) / max(baseline_len, 1) * 100
-                is_time = payload["category"] == "time_based" and duration > 3
-
-                if DEBUG:
-                    print(f"[DEBUG] Param '{param}' | Payload: {payload['value'][:30]}... | Len: {test_len} | Diff: {diff:.2f}% | Err: {has_err} | Time: {is_time} ({duration:.2f}s) | Trigger: {has_err or diff > threshold or is_time}")
+                is_time = payload.get("category") == "time_based" and duration > 3
 
                 trigger = has_err or diff > threshold or is_time
                 if DEBUG:
@@ -263,7 +260,7 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict, log_cal
                         "url": url,
                         "parameter": param,
                         "vector": method,
-                        "detection_method": "ERROR_BASED" if has_err else ("TIME_BASED" if is_time else "BOOLEAN_BASED"),
+                        "detection_method": det_method,
                         "payload_used": payload["value"],
                         "db_type_hint": db,
                         "confidence": round(conf, 4),
@@ -281,6 +278,46 @@ async def test_form(client: httpx.AsyncClient, form: dict, config: dict, log_cal
                         print(f"[DETECTED] SQLi found for param '{param}' with payload '{payload['value'][:30]}...' (Likely FP: {likely_fp})")
 
                 await asyncio.sleep(config.get("request_delay", 0.3))
+            except httpx.TimeoutException as e:
+                duration = time.time() - start
+                if payload.get("category") == "time_based":
+                    is_time = True
+                    has_err = False
+                    sigs = []
+                    db = "Unknown"
+                    diff = 0.0
+                    conf = 0.65
+                    sev = severity(conf, False, is_time)
+                    det_method = "TIME_BASED"
+
+                    if log_callback:
+                        log_callback(f"[{datetime.utcnow().strftime('%H:%M:%S')}] FINDING: {sev} vulnerability ({det_method}) on parameter '{param}' (Timeout triggered)")
+
+                    findings.append({
+                        "id": uuid.uuid4().hex[:8],
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "url": url,
+                        "parameter": param,
+                        "vector": method,
+                        "detection_method": det_method,
+                        "payload_used": payload["value"],
+                        "db_type_hint": db,
+                        "confidence": round(conf, 4),
+                        "severity": sev,
+                        "cvss_score": round(conf * 10, 2),
+                        "has_sql_errors": has_err,
+                        "error_signatures": sigs[:5],
+                        "response_difference_pct": round(diff, 2),
+                        "description": f"SQLi via parameter '{param}' ({payload['category']} - timeout)",
+                        "remediation": remediation(),
+                        "likely_false_positive": False,
+                        "false_positive_reason": "",
+                    })
+                    if DEBUG:
+                        print(f"[DETECTED] SQLi found (Timeout) for param '{param}' with payload '{payload['value'][:30]}...'")
+                elif DEBUG:
+                    print(f"[DEBUG] Timeout testing payload {payload['value']}: {e}")
+                continue
             except Exception as e:
                 if DEBUG:
                     print(f"[DEBUG] Error testing payload {payload['value']}: {e}")
@@ -310,19 +347,17 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
             continue
 
         for payload in ALL_PAYLOADS[:15]:
+            start = time.time()
             try:
                 resp = await client.get(url, params={name: payload["value"]}, timeout=15)
                 if not resp:
                     continue
 
                 tl = len(resp.text)
-                dur = resp.elapsed.total_seconds() if hasattr(resp, 'elapsed') else 0
+                dur = time.time() - start
                 has_err, sigs, db = check_errors(resp.text)
                 diff = abs(tl - bl) / max(bl, 1) * 100
-                is_time = payload["category"] == "time_based" and dur > 3
-
-                if DEBUG:
-                    print(f"[DEBUG] Param '{name}' | Payload: {payload['value'][:30]}... | Len: {tl} | Diff: {diff:.2f}% | Err: {has_err} | Time: {is_time} ({dur:.2f}s) | Trigger: {has_err or diff > threshold or is_time}")
+                is_time = payload.get("category") == "time_based" and dur > 3
 
                 trigger = has_err or diff > threshold or is_time
                 if DEBUG:
@@ -350,7 +385,7 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
                         "cvss_score": round(conf * 10, 2),
                         "has_sql_errors": has_err, "error_signatures": sigs[:5],
                         "response_difference_pct": round(diff, 2),
-                        "description": f"SQLi via URL parameter '{name}'",
+                        "description": f"SQLi via URL parameter '{name}' ({payload['category']})",
                         "remediation": remediation(),
                         "likely_false_positive": likely_fp,
                         "false_positive_reason": fp_reason,
@@ -359,6 +394,38 @@ async def test_params(client: httpx.AsyncClient, params: list, config: dict) -> 
                         print(f"[DETECTED] SQLi found for param '{name}' with payload '{payload['value'][:30]}...' (Likely FP: {likely_fp})")
 
                 await asyncio.sleep(config.get("request_delay", 0.3))
+            except httpx.TimeoutException as e:
+                dur = time.time() - start
+                if payload.get("category") == "time_based":
+                    is_time = True
+                    has_err = False
+                    sigs = []
+                    db = "Unknown"
+                    diff = 0.0
+                    conf = 0.65
+                    sev = severity(conf, False, is_time)
+
+                    findings.append({
+                        "id": uuid.uuid4().hex[:8],
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                        "url": url, "parameter": name, "vector": "GET",
+                        "detection_method": "TIME_BASED",
+                        "payload_used": payload["value"], "db_type_hint": db,
+                        "confidence": round(conf, 4),
+                        "severity": sev,
+                        "cvss_score": round(conf * 10, 2),
+                        "has_sql_errors": has_err, "error_signatures": sigs[:5],
+                        "response_difference_pct": round(diff, 2),
+                        "description": f"SQLi via URL parameter '{name}' ({payload['category']} - timeout)",
+                        "remediation": remediation(),
+                        "likely_false_positive": False,
+                        "false_positive_reason": "",
+                    })
+                    if DEBUG:
+                        print(f"[DETECTED] SQLi found (Timeout) for param '{name}' with payload '{payload['value'][:30]}...'")
+                elif DEBUG:
+                    print(f"[DEBUG] Timeout testing payload {payload['value']} for param {name}: {e}")
+                continue
             except Exception as e:
                 if DEBUG:
                     print(f"[DEBUG] Error testing payload {payload['value']} for param {name}: {e}")
