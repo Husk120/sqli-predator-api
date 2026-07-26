@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import random
+import re
 import time
 import uuid
 from datetime import datetime
@@ -48,6 +49,12 @@ SQL_ERROR_PATTERNS = {
 }
 
 
+def _normalize_for_comparison(s: str) -> str:
+    s = re.sub(r'/\*.*?\*/', '', s)  # strip inline SQL comments
+    s = re.sub(r'\s+', ' ', s)        # collapse whitespace
+    return s.lower().strip()
+
+
 def check_errors(text: str):
     lower = text.lower()
     found = []
@@ -66,8 +73,8 @@ def check_reflection(response_text: str, payload: str, matched_signatures: list)
     if not response_text or not payload or not matched_signatures:
         return False, ""
 
-    lower_response = response_text.lower()
-    lower_payload = payload.lower()
+    lower_response = _normalize_for_comparison(response_text)
+    lower_payload = _normalize_for_comparison(payload)
 
     payload_sigs = [sig for sig in matched_signatures if sig.lower() in lower_payload]
 
